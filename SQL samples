@@ -1,0 +1,125 @@
+Тестовое задание на позицию Data Engineer
+
+В качестве ответа обязательно нужно выслать ссылку sqlfiddle.com или аналогичный сервис.
+
+ЗАДАНИЕ №1
+
+В таблице HISTORY_STATUS информация о дате начала и окончания нахождения сотрудников колл центра в разных статусах. BI аналитику нужно построить график распределения емкости КЦ по часам. Преобразуйте данные, чтобы получить таблицу с датой и временем округленным до часа и количеством человеко часов - емкостью. Нужно видеть какая была емкость КЦ в каждый час. В итоговой таблице считать время только  когда сотрудники находились в статусе “1”.
+CREATE TABLE HISTORY_STATUS (ID_STATUS int, DATE_BEGIN datetime, DATE_END datetime);
+
+INSERT INTO HISTORY_STATUS
+
+VALUES
+
+(1, '2021-08-01 08:16:14', '2021-08-01 08:45:43'),
+
+(2, '2021-08-01 07:45:14', '2021-08-01 12:15:43'),
+
+(3, '2021-08-02 09:45:14', '2021-08-01 17:15:43'),
+
+(1, '2021-08-01 07:55:14', '2021-08-01 16:15:43'),
+
+(1, '2021-08-01 08:10:14', '2021-08-01 11:15:43'),
+
+(1, '2021-08-01 10:10:14', '2021-08-01 18:15:43'),
+
+(1, '2021-08-01 14:10:14', '2021-08-01 21:15:43'),
+
+(1, '2021-08-01 20:10:14', '2021-08-02 02:15:43'),
+
+(1, '2021-08-01 12:10:14', '2021-08-01 21:15:43'),
+
+(1, '2021-08-02 08:10:14', '2021-08-02 18:15:43'),
+
+(1, '2021-08-02 14:10:14', '2021-08-02 22:15:43');
+
+Решение 1 задания: (https://dbfiddle.uk/?rdbms=mysql_5.6&fiddle=0134b72e87c497c8415218214fdc37d8)
+
+CREATE PROCEDURE hc_create(status int)
+BEGIN
+DECLARE hours INTEGER DEFAULT 0; # период в часах
+DECLARE dt  INTEGER; # начальное время с которого строим таблицу
+DECLARE dt1 TIMESTAMP; # начало часа
+DECLARE dt2 TIMESTAMP; # конец часа
+
+# создаем искомую  таблицу
+CREATE TEMPORARY TABLE HOUR_CAPACITY (DT datetime, CAPACITY float);
+
+# извлекаем количество часов всего 
+select 
+  TIMESTAMPDIFF(HOUR, min(DATE_BEGIN), max(DATE_END)) INTO hours
+from HISTORY_STATUS;
+
+# извлекаем начальные дату и время
+select
+  UNIX_TIMESTAMP(min(DATE_BEGIN)) INTO dt
+from HISTORY_STATUS;
+
+# окургляем начальные дату и время до часов
+SET dt1 = FROM_UNIXTIME(dt, '%Y-%m-%d %H');
+
+WHILE hours > 0 DO
+  SET dt2 = DATE_ADD(dt1, INTERVAL 1 HOUR);
+  
+  INSERT INTO HOUR_CAPACITY SET 
+     DT=dt1,
+     CAPACITY=
+       ((select IFNULL(sum(TIMESTAMPDIFF(MINUTE, DATE_BEGIN, dt2)), 0)
+       from HISTORY_STATUS
+       where ((DATE_BEGIN BETWEEN dt1 AND dt2) AND DATE_END >= dt2) AND (ID_STATUS = status)
+       ) 
+       +
+       (select IFNULL(sum(TIMESTAMPDIFF(MINUTE, dt1, DATE_END)), 0)
+       from HISTORY_STATUS
+       where ((DATE_END BETWEEN dt1 AND dt2) AND DATE_BEGIN <= dt1) AND (ID_STATUS = status)
+       )
+       +
+       (select IFNULL(sum(TIMESTAMPDIFF(MINUTE, dt1, dt2)), 0)
+       from HISTORY_STATUS
+       where ((dt1 BETWEEN DATE_BEGIN AND DATE_END) AND (dt2 BETWEEN DATE_BEGIN AND DATE_END)) AND (ID_STATUS = status) 
+       )
+       )/60;
+
+  SET dt1 = dt2;
+  SET hours = hours - 1;
+END WHILE;
+END;
+
+call hc_create(1);
+
+ЗАДАНИЕ №2
+
+В таблице ORDERS информация о дате и количестве продаж. Вывести на каждую дату количество продаж, совершенное с начала месяца по указанную дату включительно накопительным итогом.
+CREATE TABLE ORDERS (SHIP_DATE date, CNT int);
+
+INSERT INTO ORDERS
+
+VALUES
+
+('2021-08-02', 185),
+
+('2021-08-03', 177),
+
+('2021-08-04', 157),
+
+('2021-08-05', 468),
+
+('2021-09-06', 182),
+
+('2021-09-08', 689),
+
+('2021-09-09', 156),
+
+('2021-09-10', 480),
+
+('2021-09-11', 145),
+
+('2021-09-12', 150);
+
+Решение второго задания : (https://dbfiddle.uk/?rdbms=mysql_8.0&fiddle=3d0c0d797b939955b54bad388bff1405)
+
+SELECT
+  SHIP_DATE,
+  SUM(CNT)
+    OVER(PARTITION BY MONTH(SHIP_DATE) ORDER BY SHIP_DATE)
+FROM ORDERS
